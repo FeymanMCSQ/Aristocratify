@@ -1,0 +1,37 @@
+{
+    "manifest_version": 3,
+    "name": "Aristocratify",
+    "version": "1.0.0",
+    "description": "Rewrite WhatsApp messages into pompous aristocratic medieval English.",
+    "permissions": [
+        "activeTab"
+    ],
+    "host_permissions": [
+        "http://localhost:3001/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "https://web.whatsapp.com/*"
+            ],
+            "js": [
+                "loader.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "main.js",
+                "api/index.js",
+                "composer/index.js",
+                "controller/index.js",
+                "ui/index.js"
+            ],
+            "matches": [
+                "https://web.whatsapp.com/*"
+            ]
+        }
+    ]
+}

@@ -1,0 +1,20 @@
+# General
+.DS_Store
+Thumbs.db
+
+# Environment Secrets (CRITICAL: Never commit these)
+.env
+ui/.env
+
+# Dependencies
+node_modules/
+jspm_packages/
+
+# Project Specific
+.gemini/
+*.log
+
+# Build/Dist
+dist/
+build/
+out/
