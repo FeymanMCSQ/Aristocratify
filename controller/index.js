@@ -8,7 +8,7 @@ import * as ui from '../ui/index.js';
 import * as api from '../api/index.js';
 
 // Configuration & Standards
-const DEBUG = true; // Gated behind debug flag (docs/07-coding-standards.md)
+const DEBUG = true;
 
 // Explicit States (docs/01-architecture.md)
 export const STATES = {
@@ -48,8 +48,6 @@ export function init() {
 async function handleRewriteRequest() {
     if (currentState !== STATES.READY || !currentComposerHandle) return;
 
-    // 1. Capture original state for validation (docs/02-dom-contract-whatsapp.md)
-    // Handle reference check is vital for hardening (Task 6.1)
     const capturedHandle = currentComposerHandle;
     const originalText = composer.getDraftText(capturedHandle);
     const originalMetrics = {
@@ -57,17 +55,16 @@ async function handleRewriteRequest() {
         hash: originalText.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0)
     };
 
-    // 2. Transition to BUSY (docs/01-architecture.md)
+    // 2. Transition to BUSY
     updateState(STATES.BUSY);
 
     try {
-        // 3. Call API (docs/03-api-contract.md)
+        // 3. Call API
         const rewrittenText = await api.rewrite(originalText, 'pompous_aristocratic_medieval_english');
 
-        // 4. Validate user didn't type OR switch chats during flight (User Agency Invariant)
-        // Reference check ensured we are still looking at the same DOM node
+        // 4. Validate user agency
         if (currentComposerHandle !== capturedHandle) {
-            if (DEBUG) console.warn('[Aristocratify] Composer handle changed during rewrite; aborting replacement.');
+            if (DEBUG) console.warn('[Aristocratify] Composer handle changed during rewrite; aborting.');
             return;
         }
 
@@ -78,34 +75,25 @@ async function handleRewriteRequest() {
         };
 
         if (currentMetrics.length !== originalMetrics.length || currentMetrics.hash !== originalMetrics.hash) {
-            if (DEBUG) console.warn('[Aristocratify] Draft text changed during rewrite; aborting replacement.');
+            if (DEBUG) console.warn('[Aristocratify] Draft changed during rewrite; aborting.');
             return;
         }
 
-        // 5. Replace content
-        composer.setDraftText(currentComposerHandle, rewrittenText);
+        // 5. Replace content (Atomic Clear + Paste)
+        await composer.setDraftText(currentComposerHandle, rewrittenText);
         if (DEBUG) console.log('[Aristocratify] Rewrite applied successfully.');
 
     } catch (error) {
         if (DEBUG) console.error('[Aristocratify] Rewrite failed:', error);
-        // Failure must not destroy user work (Constitution Invariant I.13)
     } finally {
-        // 6. Return to correct state based on current handle status
-        if (!currentComposerHandle) {
-            updateState(STATES.NO_COMPOSER);
-        } else {
-            evaluateIdleReady();
-        }
+        evaluateIdleReady();
     }
 }
-
-
 
 /**
  * Handles transition when the composer element changes.
  */
 function handleComposerChange(handle) {
-    // Clean up old subscriptions
     if (unsubscribeDraft) {
         unsubscribeDraft();
         unsubscribeDraft = null;
@@ -118,12 +106,11 @@ function handleComposerChange(handle) {
         return;
     }
 
-    // Subscribe to draft changes to toggle between IDLE and READY
+    // Subscribe to draft changes
     unsubscribeDraft = composer.subscribeDraftChanges(handle, () => {
         evaluateIdleReady();
     });
 
-    // Initial check
     evaluateIdleReady();
 }
 
@@ -131,8 +118,6 @@ function handleComposerChange(handle) {
  * Toggles state between IDLE and READY based on draft content.
  */
 function evaluateIdleReady() {
-    // Fix: Removed the BUSY check that caused deadlocks.
-    // We want to update the state based on actual draft content regardless of previous state.
     if (!currentComposerHandle) {
         updateState(STATES.NO_COMPOSER);
         return;
@@ -148,21 +133,16 @@ function evaluateIdleReady() {
 
 /**
  * Primary state transition function.
- * @param {string} newState - One of STATES.
  */
 export function updateState(newState) {
     if (newState === currentState) return;
-
-    if (DEBUG) {
-        console.log(`[Aristocratify] State Transition: ${currentState} -> ${newState}`);
-    }
-
+    if (DEBUG) console.log(`[Aristocratify] State Transition: ${currentState} -> ${newState}`);
     currentState = newState;
     syncUI();
 }
 
 /**
- * Synchronizes the UI state based on the current state machine.
+ * Synchronizes the UI state.
  */
 function syncUI() {
     switch (currentState) {
@@ -174,7 +154,6 @@ function syncUI() {
         case STATES.READY:
             ui.show();
             ui.setBusy(false);
-            // Reposition on state change
             if (currentComposerHandle) {
                 ui.position(composer.getAnchorRect(currentComposerHandle));
             }

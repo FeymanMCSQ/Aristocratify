@@ -67,7 +67,6 @@ export function findComposer() {
     }
 
     // Fail closed: If multiple candidates exist and none is clearly the composer, do nothing.
-    // This adheres to the "Confidence rule" in /docs/02-dom-contract-whatsapp.md.
     return null;
 }
 
@@ -116,87 +115,86 @@ export function getDraftText(handle) {
 
 /**
  * Replaces the entire content of the composer with the given text.
- * Strictly follows /docs/02-dom-contract-whatsapp.md.
+ * Uses Keyboard Simulation (V6) for clearing and Simulated Paste for injection.
+ * Highly robust against state-managed frameworks.
  * @param {HTMLElement} handle - The composer element.
  * @param {string} text - The text to insert.
  */
-export function setDraftText(handle, text) {
-    if (!handle) {
-        console.error('[Aristocratify] setDraftText called without handle.');
-        return;
-    }
+export async function setDraftText(handle, text) {
+    if (!handle) return;
 
-    console.log(`[Aristocratify] Starting replacement (V3: Simulated Paste). Target length: ${text.length}`);
+    console.log(`[Aristocratify] Starting robust replacement. Target length: ${text.length}`);
 
     try {
         handle.focus();
 
-        // 1. CLEAR: selectAll + delete
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        document.execCommand('selectAll', false, null);
-        document.execCommand('delete', false, null);
-        console.log('[Aristocratify] V3 Step 1: Editor cleared.');
+        // Helper to dispatch physical signals
+        const dispatch = (type, opts) => {
+            handle.dispatchEvent(new KeyboardEvent(type, {
+                bubbles: true, cancelable: true, composed: true, ...opts
+            }));
+        };
 
-        // 2. PASTE SIMULATION
-        // This is the most reliable way to update complex framework states like Lexical/React
+        // 1. ATOMIC CLEAR (Keyboard Simulation)
+        // Trick React/Lexical into 'agreeing' to be empty by faking human keys
+        dispatch('keydown', { key: 'a', code: 'KeyA', ctrlKey: true, keyCode: 65 });
+        document.execCommand('selectAll', false, null);
+
+        dispatch('keydown', { key: 'Backspace', code: 'Backspace', keyCode: 8 });
+        document.execCommand('delete', false, null);
+
+        // Final DOM wipe + notification just in case
+        if ((handle.innerText || '').trim().length > 0) {
+            handle.textContent = '';
+        }
+        handle.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true }));
+
+        // 2. SETTLE DELAY
+        // Critical for WhatsApp/React state to reconcile the emptiness
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // 3. SIMULATED PASTE
         const dataTransfer = new DataTransfer();
         dataTransfer.setData('text/plain', text);
-
         const pasteEvent = new ClipboardEvent('paste', {
-            clipboardData: dataTransfer,
-            bubbles: true,
-            cancelable: true,
-            composed: true
+            clipboardData: dataTransfer, bubbles: true, cancelable: true, composed: true
         });
+        handle.dispatchEvent(pasteEvent);
 
-        const handled = handle.dispatchEvent(pasteEvent);
-        console.log(`[Aristocratify] V3 Step 2: Paste event dispatched. Handled: ${handled}`);
-
-        // 3. FALLBACK: insertText
-        // Some frameworks block 'paste' events; we follow up with insertText if the paste didn't finish the job
-        const currentVal = handle.innerText || handle.textContent || '';
-        if (currentVal.trim().length === 0) {
-            console.log('[Aristocratify] V3 Step 3: Paste ignored, using insertText...');
+        // 4. VERIFICATION & RECOVERY
+        if ((handle.innerText || '').trim().length === 0) {
+            console.log('[Aristocratify] Paste ignored, using insertText fallback...');
             document.execCommand('insertText', false, text);
         }
 
-        // 4. SYNC: Final input event
-        // Ensure framework sees a generic input change
+        // 5. FINAL SYNC
         handle.dispatchEvent(new InputEvent('input', {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            inputType: 'insertText'
+            bubbles: true, cancelable: true, composed: true, inputType: 'insertText'
         }));
 
     } catch (e) {
-        console.warn('[Aristocratify] V3 Strategy failed, using direct DOM fallback:', e);
-        handle.innerHTML = '';
-        handle.innerText = text;
+        console.error('[Aristocratify] Robust replacement failed:', e);
+        handle.innerHTML = text; // Last resort
         handle.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
-    // Ensure cursor at end
+    // Position cursor at end
     try {
-        const finalSelection = window.getSelection();
+        const selection = window.getSelection();
         const range = document.createRange();
         range.selectNodeContents(handle);
         range.collapse(false);
-        finalSelection.removeAllRanges();
-        finalSelection.addRange(range);
+        selection.removeAllRanges();
+        selection.addRange(range);
     } catch (err) { }
 }
 
 /**
  * Gets the bounding rect of the composer for UI positioning.
- * @param {HTMLElement} handle - The composer element.
- * @returns {DOMRect|null} The rect or null if invalid.
  */
 export function getAnchorRect(handle) {
     if (!handle) return null;
     const rect = handle.getBoundingClientRect();
-    // If height or width is 0, the element is likely not visible or detached
     if (rect.width === 0 || rect.height === 0) return null;
     return rect;
 }
@@ -206,12 +204,9 @@ let lastHandle = null;
 
 /**
  * Starts observing DOM changes to re-acquire the composer.
- * Strictly follows /docs/02-dom-contract-whatsapp.md.
- * @param {Function} onComposerChange - Callback triggered when composer handle changes.
  */
 export function refresh(onComposerChange) {
     if (observer) observer.disconnect();
-
     observer = new MutationObserver(() => {
         const currentHandle = findComposer();
         if (currentHandle !== lastHandle) {
@@ -219,13 +214,7 @@ export function refresh(onComposerChange) {
             onComposerChange(currentHandle);
         }
     });
-
-    observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true
-    });
-
-    // Initial check
+    observer.observe(document.documentElement, { childList: true, subtree: true });
     const initialHandle = findComposer();
     lastHandle = initialHandle;
     onComposerChange(initialHandle);
