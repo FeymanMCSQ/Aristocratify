@@ -4,11 +4,6 @@
  */
 
 /**
- * WhatsApp composer adapter
- * Responsibilities: Find composer, read/write draft text, subscribe to changes.
- */
-
-/**
  * Finds the WhatsApp message composer using layered heuristics.
  * Strictly follows /docs/02-dom-contract-whatsapp.md.
  * @returns {HTMLElement|null} The composer element or null if not found or ambiguous.
@@ -76,7 +71,6 @@ export function findComposer() {
     return null;
 }
 
-
 /**
  * Subscribes to draft changes (input, keyup, paste).
  * Strictly follows /docs/02-dom-contract-whatsapp.md.
@@ -101,7 +95,6 @@ export function subscribeDraftChanges(handle, cb) {
         events.forEach(evt => handle.removeEventListener(evt, debouncedCb));
     };
 }
-
 
 /**
  * Reads the current draft text from the composer.
@@ -133,68 +126,67 @@ export function setDraftText(handle, text) {
         return;
     }
 
-    console.log(`[Aristocratify] Starting surgical replacement. Target length: ${text.length}`);
+    console.log(`[Aristocratify] Starting replacement (V3: Simulated Paste). Target length: ${text.length}`);
 
     try {
         handle.focus();
 
-        // 1. Surgical Clear Phase
-        // Using selectAll + delete/backspace is the only way to reliably clear framework state
+        // 1. CLEAR: selectAll + delete
         const selection = window.getSelection();
         selection.removeAllRanges();
-
-        // Select everything
         document.execCommand('selectAll', false, null);
-        console.log('[Aristocratify] Step 1: selectAll executed.');
-
-        // Delete everything (updates React/Lexical internals)
         document.execCommand('delete', false, null);
-        console.log('[Aristocratify] Step 2: delete executed (editor cleared).');
+        console.log('[Aristocratify] V3 Step 1: Editor cleared.');
 
-        // 2. Injection Phase
-        // Now that the state is "Empty", insert the new text
-        const success = document.execCommand('insertText', false, text);
-        console.log(`[Aristocratify] Step 3: insertText result: ${success}`);
+        // 2. PASTE SIMULATION
+        // This is the most reliable way to update complex framework states like Lexical/React
+        const dataTransfer = new DataTransfer();
+        dataTransfer.setData('text/plain', text);
 
-        if (!success) {
-            throw new Error('execCommand insertText failed');
+        const pasteEvent = new ClipboardEvent('paste', {
+            clipboardData: dataTransfer,
+            bubbles: true,
+            cancelable: true,
+            composed: true
+        });
+
+        const handled = handle.dispatchEvent(pasteEvent);
+        console.log(`[Aristocratify] V3 Step 2: Paste event dispatched. Handled: ${handled}`);
+
+        // 3. FALLBACK: insertText
+        // Some frameworks block 'paste' events; we follow up with insertText if the paste didn't finish the job
+        const currentVal = handle.innerText || handle.textContent || '';
+        if (currentVal.trim().length === 0) {
+            console.log('[Aristocratify] V3 Step 3: Paste ignored, using insertText...');
+            document.execCommand('insertText', false, text);
         }
 
-        // 3. Framework Sync Phase
-        // Single 'input' event to indicate the final source is ready
-        const inputEvt = new InputEvent('input', {
+        // 4. SYNC: Final input event
+        // Ensure framework sees a generic input change
+        handle.dispatchEvent(new InputEvent('input', {
             bubbles: true,
             cancelable: true,
             composed: true,
-            inputType: 'insertText',
-            data: text
-        });
-        handle.dispatchEvent(inputEvt);
-        console.log('[Aristocratify] Step 4: Final sync event dispatched.');
+            inputType: 'insertText'
+        }));
 
     } catch (e) {
-        console.warn('[Aristocratify] Surgical injection failed, using DOM fallback:', e);
-
-        // Strategy 2: Absolute Fallback (less likely to sync but safe)
-        handle.innerHTML = ''; // Start clean
+        console.warn('[Aristocratify] V3 Strategy failed, using direct DOM fallback:', e);
+        handle.innerHTML = '';
         handle.innerText = text;
         handle.dispatchEvent(new Event('input', { bubbles: true }));
-        console.log('[Aristocratify] Fallback applied.');
     }
 
-    // Ensure cursor is at the end
+    // Ensure cursor at end
     try {
         const finalSelection = window.getSelection();
-        const finalRange = document.createRange();
-        finalRange.selectNodeContents(handle);
-        finalRange.collapse(false);
+        const range = document.createRange();
+        range.selectNodeContents(handle);
+        range.collapse(false);
         finalSelection.removeAllRanges();
-        finalSelection.addRange(finalRange);
-    } catch (err) {
-        // Non-critical
-    }
+        finalSelection.addRange(range);
+    } catch (err) { }
 }
-
 
 /**
  * Gets the bounding rect of the composer for UI positioning.
@@ -238,4 +230,3 @@ export function refresh(onComposerChange) {
     lastHandle = initialHandle;
     onComposerChange(initialHandle);
 }
-
