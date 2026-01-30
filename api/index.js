@@ -1,4 +1,12 @@
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = (() => {
+    if (typeof window === 'undefined') return 'http://localhost:3001';
+    if (window.__ARISTOCRATIFY_API_BASE__) return window.__ARISTOCRATIFY_API_BASE__;
+    const { hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return 'http://localhost:3001';
+    }
+    return 'https://aristocratify.onrender.com';
+})();
 
 /**
  * Rewrite client
