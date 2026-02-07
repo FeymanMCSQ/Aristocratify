@@ -5,7 +5,7 @@ const API_BASE_URL = (() => {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
         return 'http://localhost:3001';
     }
-    return 'https://aristocratify.onrender.com';
+    return 'https://aristocratify-production.up.railway.app';
 })();
 
 /**

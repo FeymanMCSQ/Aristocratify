@@ -8,7 +8,7 @@
     ],
     "host_permissions": [
         "http://localhost:3001/*",
-        "https://aristocratify.onrender.com/*"
+        "https://aristocratify-production.up.railway.app/*"
     ],
     "content_scripts": [
         {
